@@ -259,6 +259,12 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// API: version
+const pkgJson = JSON.parse(await fs.readFile(path.join(__dirname, 'package.json'), 'utf8'));
+app.get('/api/version', (_req, res) => {
+  res.json({ version: pkgJson.version });
+});
+
 // API: list models (proxy from external API)
 app.get('/api/models', async (_req, res) => {
   try {
