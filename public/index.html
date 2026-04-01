@@ -108,7 +108,15 @@
   <div id="settingsOverlay" class="settings-overlay hidden">
     <div class="settings-panel">
       <h2>⚙ 设置</h2>
-      <div class="sg"><label>API Key</label><div class="apikey-input-row"><input id="setApiKey" type="password" placeholder="yi-xxxxx..." /><button id="copyApiKeyBtn" class="btn-icon" title="复制 API Key">📋</button></div><div class="hint">请输入API Key（意心AI ApiKey yi- 开头）</div></div>
+      <div class="sg">
+        <label>供应商</label>
+        <select id="setProvider" style="width:100%;padding:8px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border-primary);border-radius:var(--radius-md);font-size:14px;outline:none;">
+          <option value="yxai">意心AI</option>
+          <option value="zhipu">智谱清言</option>
+        </select>
+        <div class="hint" id="providerHint">意心AI - 使用 yi- 开头的 API Key</div>
+      </div>
+      <div class="sg"><label>API Key</label><div class="apikey-input-row"><input id="setApiKey" type="password" placeholder="yi-xxxxx..." /><button id="copyApiKeyBtn" class="btn-icon" title="复制 API Key">📋</button></div><div class="hint" id="apiKeyHint">请输入API Key（意心AI ApiKey yi- 开头）</div></div>
       <div class="sg">
         <label>模型</label>
         <div class="model-search-wrapper" style="width:100%;">

@@ -21,6 +21,7 @@ const modelSelectDisplay=$('#modelSelectDisplay'), modelSelectDropdown=$('#model
   promptInput=$('#promptInput'), sendBtn=$('#sendBtn'), abortBtn=$('#abortBtn'),
   newBtn=$('#newBtn'), sessionInfo=$('#sessionInfo'),
   settingsBtn=$('#settingsBtn'), settingsOverlay=$('#settingsOverlay'),
+  setProvider=$('#setProvider'),
   setApiKey=$('#setApiKey'),
   setBaseUrl=$('#setBaseUrl'), testBaseUrlBtn=$('#testBaseUrlBtn'), testResult=$('#testResult'),
   settingsSaveBtn=$('#settingsSaveBtn'),
@@ -120,10 +121,19 @@ let customModels = []; // User-added custom models
 let rememberedPermissions = new Set(); // Remembered permission rules
 let cwdHistory = []; // Working directory history (max 10)
 let planModeEnabled = false; // 计划模式状态
+let currentProvider = 'yxai'; // 当前供应商：yxai 或 zhipu
 // 图片粘贴相关
 let pendingImages = []; // 待发送的图片 [{data, mediaType, name}]
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+// 智谱清言模型列表（根据官方文档）
+const ZHIPU_MODELS = [
+  { value: 'glm-5.1', label: 'GLM-5.1', description: '高阶模型，对标 Claude Opus', provider: '智谱清言' },
+  { value: 'glm-5-turbo', label: 'GLM-5-Turbo', description: '高阶模型，快速版本', provider: '智谱清言' },
+  { value: 'glm-4.7', label: 'GLM-4.7', description: '标准模型', provider: '智谱清言' },
+  { value: 'glm-4.5-air', label: 'GLM-4.5-Air', description: '轻量模型', provider: '智谱清言' }
+];
 
 // ========== CWD History Management ==========
 function loadCwdHistory() {
@@ -286,7 +296,12 @@ function handleBtwCommand(question) {
   btwStreamBuf = '';
   showBtwPanel(question);
 
-  const baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+  // 根据供应商设置 baseUrl
+  let baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+  if (currentProvider === 'zhipu') {
+    baseUrl = 'https://open.bigmodel.cn/api/anthropic';
+  }
+
   wsSend({ type:'btw-command', btwId:activeBtwId, prompt:question,
     model:selectedModel.value, cwd:cwdInput.value||null, apiKey, baseUrl });
 }
@@ -381,7 +396,13 @@ function runInit() {
   fetch('/prompt/INIT_PROJECT.md').then(res => res.text()).then(initPrompt => {
     appendUserMsg('/init');
     promptInput.value = '';
-    const baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+
+    // 根据供应商设置 baseUrl
+    let baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+    if (currentProvider === 'zhipu') {
+      baseUrl = 'https://open.bigmodel.cn/api/anthropic';
+    }
+
     wsSend({ type: 'claude-command', prompt: initPrompt, sessionId, cwd: cwdInput.value || null,
       model: selectedModel.value, permissionMode: permSelect.value, apiKey, baseUrl });
     setStreaming(true);
@@ -406,7 +427,13 @@ async function runCommit() {
 
     appendUserMsg('/commit');
     promptInput.value = '';
-    const baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+
+    // 根据供应商设置 baseUrl
+    let baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+    if (currentProvider === 'zhipu') {
+      baseUrl = 'https://open.bigmodel.cn/api/anthropic';
+    }
+
     wsSend({ type: 'claude-command', prompt: commitPrompt, sessionId, cwd: cwdInput.value,
       model: selectedModel.value, permissionMode: permSelect.value, apiKey, baseUrl });
     setStreaming(true);
@@ -426,7 +453,13 @@ function runCompact() {
   appendUserMsg('/compact');
   promptInput.value = '';
   appendSystemMsg('正在压缩会话上下文…');
-  const baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+
+  // 根据供应商设置 baseUrl
+  let baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+  if (currentProvider === 'zhipu') {
+    baseUrl = 'https://open.bigmodel.cn/api/anthropic';
+  }
+
   wsSend({ type: 'claude-command', prompt: '/compact', sessionId, cwd: cwdInput.value || null,
     model: selectedModel.value, permissionMode: permSelect.value, apiKey, baseUrl });
   setStreaming(true);
@@ -639,7 +672,14 @@ function addCustomModel(modelId) {
   const allModels = getAllModels();
   const existing = allModels.find(m => m.value === modelId);
   if (existing) return existing;
-  const newModel = { value: modelId, label: modelId, description: '', icon: '', provider: '自定义', isCustom: true };
+  const newModel = {
+    value: modelId,
+    label: modelId,
+    description: '',
+    icon: '',
+    provider: currentProvider === 'zhipu' ? '智谱清言' : '自定义',
+    isCustom: true
+  };
   customModels.push(newModel);
   saveCustomModels();
   return newModel;
@@ -651,8 +691,65 @@ function removeCustomModel(modelId) {
   renderSettingsModelDropdown();
 }
 
+// 渲染主界面模型下拉框
+function renderMainModelDropdown() {
+  modelSelectDropdown.innerHTML = '';
+  const allMainModels = getAllModels();
+  allMainModels.forEach(m => {
+    const opt = document.createElement('div');
+    opt.className = 'model-select-option';
+    opt.dataset.value = m.value;
+    const iconHTML = m.icon ? `<img class="model-icon" src="${m.icon}" alt="">` : '<div class="model-icon-placeholder"></div>';
+    opt.innerHTML = `${iconHTML}<span class="model-label">${escHtml(m.label)}</span>${m.provider ? `<span class="model-provider">${escHtml(m.provider)}</span>` : ''}`;
+    opt.addEventListener('click', () => selectModel(m));
+    modelSelectDropdown.appendChild(opt);
+  });
+}
+
+// 更新供应商相关的UI提示
+function updateProviderUI() {
+  const providerHint = document.getElementById('providerHint');
+  const apiKeyHint = document.getElementById('apiKeyHint');
+  const apiKeyInput = document.getElementById('setApiKey');
+
+  if (currentProvider === 'zhipu') {
+    if (providerHint) providerHint.textContent = '智谱清言 - 使用智谱 API Key';
+    if (apiKeyHint) apiKeyHint.textContent = '请输入智谱清言 API Key';
+    if (apiKeyInput) apiKeyInput.placeholder = '智谱 API Key...';
+    // 智谱清言时，Base URL 自动设置且不可修改
+    if (setBaseUrl) {
+      setBaseUrl.value = 'https://open.bigmodel.cn/api/anthropic';
+      setBaseUrl.disabled = true;
+      setBaseUrl.style.opacity = '0.6';
+    }
+    if (testBaseUrlBtn) {
+      testBaseUrlBtn.disabled = true;
+      testBaseUrlBtn.style.opacity = '0.6';
+    }
+  } else {
+    if (providerHint) providerHint.textContent = '意心AI - 使用 yi- 开头的 API Key';
+    if (apiKeyHint) apiKeyHint.textContent = '请输入API Key（意心AI ApiKey yi- 开头）';
+    if (apiKeyInput) apiKeyInput.placeholder = 'yi-xxxxx...';
+    // 意心AI时，Base URL 可以自定义
+    if (setBaseUrl) {
+      setBaseUrl.disabled = false;
+      setBaseUrl.style.opacity = '1';
+      const savedBaseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+      setBaseUrl.value = savedBaseUrl;
+    }
+    if (testBaseUrlBtn) {
+      testBaseUrlBtn.disabled = false;
+      testBaseUrlBtn.style.opacity = '1';
+    }
+  }
+}
+
 function getAllModels() {
-  return [...modelsData.map(m => ({...m, isCustom: false})), ...customModels];
+  // 根据当前供应商返回对应的模型列表
+  if (currentProvider === 'zhipu') {
+    return [...ZHIPU_MODELS.map(m => ({...m, isCustom: false})), ...customModels.filter(m => m.provider === '智谱清言')];
+  }
+  return [...modelsData.map(m => ({...m, isCustom: false})), ...customModels.filter(m => m.provider !== '智谱清言')];
 }
 
 function renderSettingsModelDropdown(filter = '') {
@@ -679,7 +776,7 @@ function renderSettingsModelDropdown(filter = '') {
     const iconHTML = m.icon ? `<img class="model-icon" src="${m.icon}" alt="">` : '<div class="model-icon-placeholder"></div>';
     const badge = m.isCustom
       ? '<span class="model-badge model-badge-custom">自定义</span>'
-      : '<span class="model-badge model-badge-yxai">意心AI</span>';
+      : (currentProvider === 'zhipu' ? '<span class="model-badge model-badge-zhipu">智谱清言</span>' : '<span class="model-badge model-badge-yxai">意心AI</span>');
     const deleteBtn = m.isCustom
       ? '<button class="model-delete-btn" title="删除自定义模型">✕</button>'
       : '';
@@ -778,26 +875,25 @@ const TOOL_ICON = {
   } catch(e) { console.error('[version]', e); }
 
   try {
-    // 始终从 yxai.chat 加载模型列表，切换自定义 URL 时不隐藏
+    // 加载保存的供应商配置
+    currentProvider = localStorage.getItem('yxcode_provider') || 'yxai';
+    if (setProvider) setProvider.value = currentProvider;
+
+    // 根据供应商加载模型列表
     let models = [];
-    try {
-      models = await (await fetch('/api/models')).json();
-    } catch(e) { console.error('[loadModels from yxai.chat]', e); }
-    modelsData = models;
+    if (currentProvider === 'yxai') {
+      try {
+        models = await (await fetch('/api/models')).json();
+      } catch(e) { console.error('[loadModels from yxai.chat]', e); }
+      modelsData = models;
+    } else {
+      // 智谱清言使用内置模型列表
+      modelsData = [];
+    }
 
     // Render main model dropdown (includes custom models)
     loadCustomModels();
-    modelSelectDropdown.innerHTML = '';
-    const allMainModels = [...models.map(m => ({...m, isCustom: false})), ...customModels];
-    allMainModels.forEach(m => {
-      const opt = document.createElement('div');
-      opt.className = 'model-select-option';
-      opt.dataset.value = m.value;
-      const iconHTML = m.icon ? `<img class="model-icon" src="${m.icon}" alt="">` : '<div class="model-icon-placeholder"></div>';
-      opt.innerHTML = `${iconHTML}<span class="model-label">${escHtml(m.label)}</span>${m.provider ? `<span class="model-provider">${escHtml(m.provider)}</span>` : ''}`;
-      opt.addEventListener('click', () => selectModel(m));
-      modelSelectDropdown.appendChild(opt);
-    });
+    renderMainModelDropdown();
 
     // Render settings model dropdown with search
     renderSettingsModelDropdown();
@@ -814,11 +910,15 @@ const TOOL_ICON = {
         selectModel(savedModel);
         selectSettingsModel(savedModel);
       }
-    } else if (models.length > 0) {
-      selectModel(models[0]);
-      selectSettingsModel(models[0]);
+    } else {
+      const allModels = getAllModels();
+      if (allModels.length > 0) {
+        selectModel(allModels[0]);
+        selectSettingsModel(allModels[0]);
+      }
     }
   } catch(e) { console.error('[loadModels]', e); }
+
   cwdInput.value = localStorage.getItem('yxcode_cwd') || '';
   setApiKey.value = localStorage.getItem('yxcode_apiKey') || '';
   setBaseUrl.value = localStorage.getItem('yxcode_baseUrl') || '';
@@ -847,7 +947,25 @@ const TOOL_ICON = {
   girlfriendMode.addEventListener('change', () => {
     localStorage.setItem('yxcode_girlfriendMode', girlfriendMode.checked);
   });
-  settingsBtn.addEventListener('click', () => { settingsOverlay.classList.remove('hidden'); renderPermissionList(); });
+
+  // 供应商切换事件
+  if (setProvider) {
+    setProvider.addEventListener('change', () => {
+      currentProvider = setProvider.value;
+      localStorage.setItem('yxcode_provider', currentProvider);
+      updateProviderUI();
+      renderMainModelDropdown();
+      renderSettingsModelDropdown();
+      // 清空当前选择的模型，让用户重新选择
+      selectedModel = null;
+      selectedSettingsModel = null;
+      setModelSearch.value = '';
+      modelSelectDisplay.querySelector('.model-label').textContent = '选择模型';
+      modelSelectDisplay.querySelector('.model-icon').style.display = 'none';
+    });
+  }
+
+  settingsBtn.addEventListener('click', () => { settingsOverlay.classList.remove('hidden'); renderPermissionList(); updateProviderUI(); });
   settingsCloseBtn.addEventListener('click', () => settingsOverlay.classList.add('hidden'));
   // 点击背景不再关闭弹窗，只能通过关闭按钮关闭
   settingsSaveBtn.addEventListener('click', saveSettings);
@@ -904,27 +1022,25 @@ const TOOL_ICON = {
 function saveSettings() {
   localStorage.setItem('yxcode_apiKey', setApiKey.value.trim());
   localStorage.setItem('yxcode_baseUrl', setBaseUrl.value.trim());
+  localStorage.setItem('yxcode_provider', currentProvider);
   if (selectedSettingsModel) {
     localStorage.setItem('yxcode_model', selectedSettingsModel.value);
     // Update main model select and header dropdown (include custom models)
     selectModel(selectedSettingsModel);
     // Re-render main model dropdown to include any new custom models
-    modelSelectDropdown.innerHTML = '';
-    const allMainModels = [...modelsData.map(m => ({...m, isCustom: false})), ...customModels];
-    allMainModels.forEach(m => {
-      const opt = document.createElement('div');
-      opt.className = 'model-select-option';
-      opt.dataset.value = m.value;
-      const iconHTML = m.icon ? `<img class="model-icon" src="${m.icon}" alt="">` : '<div class="model-icon-placeholder"></div>';
-      opt.innerHTML = `${iconHTML}<span class="model-label">${escHtml(m.label)}</span>${m.provider ? `<span class="model-provider">${escHtml(m.provider)}</span>` : ''}`;
-      opt.addEventListener('click', () => selectModel(m));
-      modelSelectDropdown.appendChild(opt);
-    });
+    renderMainModelDropdown();
   }
   // 同步设置到 ~/.claude/settings.json
   const syncPayload = {};
   if (setApiKey.value.trim()) syncPayload.apiKey = setApiKey.value.trim();
-  syncPayload.baseUrl = setBaseUrl.value.trim() || 'https://yxai.chat';
+
+  // 根据供应商设置 baseUrl
+  if (currentProvider === 'zhipu') {
+    syncPayload.baseUrl = 'https://open.bigmodel.cn/api/anthropic';
+  } else {
+    syncPayload.baseUrl = setBaseUrl.value.trim() || 'https://yxai.chat';
+  }
+
   if (selectedSettingsModel) syncPayload.model = selectedSettingsModel.value;
   if (Object.keys(syncPayload).length > 0) {
     fetch('/api/settings', {
@@ -1735,7 +1851,13 @@ async function send() {
 
   const images = pendingImages.length > 0 ? pendingImages.map(img => ({ data: img.data, mediaType: img.mediaType })) : null;
   appendUserMsg(t, images); promptInput.value='';
-  const baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+
+  // 根据供应商设置 baseUrl
+  let baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
+  if (currentProvider === 'zhipu') {
+    baseUrl = 'https://open.bigmodel.cn/api/anthropic';
+  }
+
   wsSend({ type:'claude-command', prompt:finalPrompt, images, sessionId, cwd:cwdInput.value||null,
     model:selectedModel.value, permissionMode:permSelect.value,
     apiKey, baseUrl });
